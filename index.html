@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>U.S. Greenhouse Gas Emissions (2016)</title>
+  <meta name="viewport" content="initial-scale=1.0">
+  <meta charset="utf-8">
+
+  <!-- ####### LOAD FONT ####### -->
+  <link href="http://fonts.googleapis.com/css?family=Montserrat" rel="stylesheet" type="text/css">
+
+  <style>
+    body {
+      padding: 0;
+      margin: 0;
+      background: whitesmoke;
+      font-family: Montserrat, serif;
+    }
+    header, footer {
+      background: #595959;
+      color: whitesmoke;
+      padding: 18px 0;
+      box-shadow: 0px 1px 3px #245574;
+      font-weight: bold;
+    }
+    .container {
+      width: 960px;
+      margin: 18px auto;
+    }
+    h1 {
+      width: 960px;
+      margin: 0 auto;
+      font-size: 2em;
+    }
+    a {
+      color: white;
+    }
+    ul li {
+      margin: 0 0 8px 0;
+    }
+    #map {
+      width: 100%;
+      height: 600px;
+    }
+    .facility {
+      fill: #cf5635;
+      stroke: white;
+      stroke-width: 0.3;
+      opacity: 0.8;
+    }
+    .state {
+      fill: #bfbfbf;
+      stroke: #595959;
+      stroke-width: 1.5;
+      stroke-dasharray: 9, 3, 6;
+    }
+    .hover {
+      stroke: #ffff00;
+      stroke-width: 2.0;
+    }
+    .filter {
+      position: absolute;
+      right: 48px;
+      width: 260px;
+      font-size: 1.3em;
+    }
+    .tooltip {
+      position: absolute;
+      min-width: 60px;
+      min-height: 28px;
+      padding: 6px 12px 3px;
+      color: whitesmoke;
+      background: #595959;
+      border-radius: 2px;
+      pointer-events: none;
+      opacity: 0;
+      font-weight: bold;
+    }
+    .legend circle {
+      fill: none;
+      stroke: #595959;
+    }
+    .legend text {
+      fill: #595959;
+      font: 10px sans-serif;
+      text-anchor: middle;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>U.S. Greenhouse Gas Emissions (2016)</h1>
+  </header>
+  <div class="container">
+    <div id="map"></div>
+  </div>
+  <footer>
+    <div class="container">
+      <ul>
+        <li>Map author: &nbsp <a href="https://jefftman24.github.io/Portfolio-Jeff-Tiemann/" style="color: #bfbfbf"><b><i>Jeff Tiemann</i></b></a></li>
+        <li>Data sources: &nbsp <a href="https://www.census.gov/geo/maps-data/data/tiger-cart-boundary.html" style="color: #bfbfbf"><b><i>USCB Cartographic Boundary Files</i></b></a>, &nbsp <a href="https://www.epa.gov/air-emissions-inventories/emissions-inventory-system-eis-gateway" style="color: #bfbfbf"><b><i>EPA Emissions Inventory System (EIS) Gateway</i></b></a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <!-- ####### LOAD D3 Libary ####### -->
+  <script src="https://d3js.org/d3.v5.js"></script>
+
+  <!-- ####### LOAD TopoJSON Libary ####### -->
+  <script src="https://unpkg.com/topojson@3"></script>
+
+  <!-- ####### LOAD D3 Scale Chromatic Module ####### -->
+  <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+
+  <script>
+
+  // ####### SYNCHRONOUS CALLS TO DATA FILES #######
+  var statesJson = d3.json("data/us-states.json"),
+      facilityCSV = d3.csv("data/facility-emissions-2016.csv")
+
+  // ####### USE PROMISE TO REQUEST DATA FILES & CALL drawMap FUCTION  #######
+  Promise.all([statesJson, facilityCSV]).then(drawMap)
+
+  // ####### drawMap FUNCTION: ACCEPTS THE DATA (statesData) AS A PARAMETER #######
+  function drawMap(data) {
+
+      // ####### SET VARIABLES FOR EACH DATASET FROM ARRAY CREATED BY PROMISE REQUEST #######
+      var statesData = data[0],
+          facilityData = data[1]
+
+      // ####### DEFINE WIDTH & HEIGHT OF OUR SVG #######
+      var width = 960,
+          height = 600
+
+      // ####### SELECT THE MAP ELEMENT #######
+      var svg = d3.select("#map")
+          .append("svg")  // ####### APPEND A NEW SVG ELEMENT #######
+          .attr("width", width) // ####### GIVE SVG ELEMENT A WIDTH ATTRIBUTE & VALUE #######
+          .attr("height", height) // ####### GIVE SVG ELEMENT A HEIGHT ATTRIBUTE & VALUE #######
+          .call(d3.zoom().on("zoom", function () { // ####### ENABLE PANNING & ZOOM W/ #######
+              svg.attr("transform", d3.event.transform) // ####### SCROLL WHEEL #######
+          }))
+          .on("dblclick.zoom", null) // ####### DISABLE DOUBLE CLICK ZOOMING #######
+          .append("g") // ####### APPEND ZOOM ELEMENT #######
+
+      // ####### GET THE GEOJSON REPRESENTATION OF THE TOPOJSON DATA #######
+      var geojson = topojson.feature(statesData, {
+          type: "GeometryCollection",
+          geometries: statesData.objects.cb_2016_us_state_20m.geometries
+      })
+
+      // ####### DEFINE PROJECTION: US ALBERS #######
+      // ####### FIT EXTENT OF THE GEOJSON DATA TO SPECIFIC WIDTH & HEIGHT #######
+      var projection = d3.geoAlbersUsa()
+                .fitSize([width, height], geojson)
+
+      // ####### DEFINE A PATH GENERATOR WHICH USES THE SPECIFIED PROJECTION #######
+      var path = d3.geoPath()
+          .projection(projection)
+
+      // ####### DEFINE RADIUS GENERATOR #######
+      var radius = d3.scaleSqrt().domain([0, 1e6]).range([1, 9])
+
+      // ####### DEFINE COLOR GENERATOR #######
+      var color = d3.scaleOrdinal(d3.schemeCategory10)
+
+      // ####### CREATE & APPEND A NEW SVG 'g' ELEMENT TO THE SVG #######
+      var states = svg.append("g")
+          .selectAll("path")  // ####### SELECT ALL THE PATHS (that don't exist yet) #######
+          .data(geojson.features) // ####### USE THE GEOJSON DATA #######
+          .enter()  // ####### ENETER THE SELECTION #######
+          .append("path")  // ####### APPEND NEW PATH ELEMENTS FOR EACH DATA FEATURE #######
+          .attr("d", path)  // ####### GIVE EACH PATH A 'd' ATTRIBUTE VALUE #######
+          .attr("class", "state")  // ####### GIVE EACH PATH A CLASS OF STATE #######
+
+      var facilities = svg.append("g")
+        .selectAll("circle")
+        .data(facilityData.sort(function (a, b) { // ###### SORT DATA TO SO THAT ######
+          return b.Total - a.Total // ###### THE LARGER CIRCLES ARE DRAW FIRST ######
+        }))
+        .enter().append("circle")  // ####### ENTER & APPEND A CIRCLE ELEMENT #######
+        .attr("cx", function (d) {  //####### DEFINE THE X POSITION #######
+          d.position = projection([d.Longitude, d.Latitude]);
+          return d.position[0]; // ####### RUN LAT LONG THROUGH PROJECTION FUNCTION #######
+        })
+        .attr("cy", function (d) { //####### DEFINE THE Y POSITION #######
+          return d.position[1];
+        })
+        .attr("r", function (d) { // ####### ASSIGN CIRCLE SIZE BASED #######
+          return radius(+d.Total) // #######  ON RADIUS GENERATOR #######
+        })
+        .style("fill", function (d) {  // ####### ASSIGN EACH CIRCLE  A FILL STYLE #######
+          return color(d.Industry_Type)  // ####### DERIVE HEX COLOR FROM HE VALUE #######
+        })
+        .attr("class", "facility")
+        .on("mouseover", function(d) {  // ####### ON MOUSING OVER ELEMENT #######
+           // ####### SELECT IT, ADD CLASS NAME & BRING IT TO FRONT #######
+           d3.select(this).classed("hover", true).raise();
+           // ####### MAKE TOOLTIP VISIBLE & UPDATE INFO (HTML) #######
+           tooltip.style("opacity", 1).html(d.Facility_Name + "</br>" +
+              "&nbsp" + "(" + d.City + ", " + d.State + ")" + "</br>" +
+              Number(d.Total).toLocaleString() + " tons")
+        })
+        .on("mouseout", function() { // ####### ON MOUSING OUT OF ELEMENT #######
+           d3.select(this).classed("hover", false) // ####### REMOVE THE CLASS #######
+           tooltip.style("opacity", 0) // ####### HIDE THE ELEMENT #######
+        })
+
+        console.log(facilityData);
+
+      // ####### CREATE DIV FOR THE TOOLTIP & HIDE W/ OPACITY #######
+      var tooltip = d3.select("body").append("div")
+          .attr("class", "tooltip")
+
+      // ####### SELECT THE MAP ELEMENT #######
+      d3.select("#map")
+          .on("mousemove", function (event) { // ####### ON MOUSING OVER ELEMENT #######
+            // ####### UPDATE THE POSITION OF THE TOOLTIP #######
+            tooltip.style("left", (d3.event.pageX + 10) + "px")
+              .style("top", (d3.event.pageY - 30) + "px");
+          })
+
+      // ####### CALL drawLegend FUNCTION #######
+      drawLegend(svg, width, height, radius);
+
+      // ####### CALL addFilter FUNCTION #######
+      addFilter(facilityData, facilities);
+
+  } // ####### END drawMap FUNCTION #######
+
+
+  // ####### drawLegend FUNCTION #######
+  function drawLegend(svg, width, height, radius) {
+
+      // ####### APPEND A NEW 'g' ELEMENT #######
+      var legend = svg.append("g")
+        .attr("dy", "1.3em")  // ####### ADJUST THE VERTICAL DISPLACEMENT #######
+        .attr("class", "legend")  // ####### ADD A CLASS (FOR CSS) #######
+        .attr("transform", "translate(" + (width - 37) + "," + (height - 120) + ")")
+        .selectAll("g")  // ####### SELECT ALL NEW 'g' ELEMENTS #######
+        .data([5e6, 2e7])  // ####### APPLY TWO NUMBERS (APPX MEDIAN/MAX) #######
+        .enter().append("g");  // ####### ENTER & APPEND THE TWO NEW 'g' ELEMENTS #######
+
+      // ####### PLACE THE CIRCLE VERTICALLY & APPLY RADIUS #######
+      legend.append("circle")
+        .attr("cy", function (d) {
+          return -radius(d);
+        })
+        .attr("r", radius);
+
+      // ####### APPEND TEXT TO EACH #######
+      legend.append("text")
+        .attr("y", function (d) {
+          return -2 * radius(d);
+        })
+        .attr("dy", "1.3em")
+        .text(d3.format(".1s"));
+
+      // ####### APPEND A LEGEND LABEL AT BOTTOM #######
+      legend.append("text")
+        .attr("y", 16)
+        .text("Metric Tons (MT)")
+
+}  // ####### END drawLegend FUNCTION #######
+
+
+// #######  addFilter FUNCTION #######
+function addFilter(facilityData, facilities) {
+
+    // ####### SELECT THE MAP ELEMENT #######
+    var dropdown = d3.select('#map')
+      .append('select')  // ####### APPEND A NEW SELECT ELEMENT #######
+      .attr('class', 'filter')  // ####### ADD A CLASS NAME #######
+      .on('change', onchange)  // ####### LISTEN FOR CHANGE #######
+
+    // ####### ARRAY TO HOLD SELECT OPTIONS #######
+    var uniqueTypes = ["All Facilities"];
+
+    // ####### LOOP THROUGH ALL FEATURES & PUSH UNIQUE TYPES TO ARRAY #######
+    facilityData.forEach(function (facility) {
+      // ####### IF THE TYPE IS NOT INCLUDED IN THE ARRAY, PUSH IT TO THE ARRAY #######
+      if (!uniqueTypes.includes(facility.Industry_Type)) uniqueTypes.push(facility.Industry_Type)
+    })
+
+    // ####### SORT TYPES ALPHABETICALLY IN ARRAY #######
+    uniqueTypes.sort();
+
+    // ####### SELECT ALL THE OPTIONS (that don't exist yet) #######
+    dropdown.selectAll('option')
+      .data(uniqueTypes).enter() // ####### ATTACH OUR ARRAY AS DATA #######
+      .append("option") // ####### APPEND A NEW OPTION ELEMENT FOR EACH DATA ITEM #######
+      .text(function (d) {
+        return d // ####### USE THE ITEM AS TEXT #######
+      })
+      .attr("value", function (d) {
+        return d // ####### USE THE TIME AS VALUE ATTRIBUTE #######
+      })
+
+      // ####### onchange FUNCTION #######
+      function onchange() {
+          // ####### GET THE CURRENT VALUE FROM THE SELECT ELEMENT #######
+          var val = d3.select('select').property('value')
+
+          // ####### STYLE THE DISPLAY OF THE FACILITIES #######
+          facilities.style("display", function (d) {
+            // ####### IF IT'S OUR DEFAULT, SHOW THEM ALL W/ INLINE #######
+            if (val === "All Facilities") return "inline"
+            // ####### OTHERWISE, IF EACH INDUSTRY TYPE DOESN'T MATCH THE VALUE #######
+            if (d.Industry_Type != val) return "none"  // don't display it
+          })
+      } // ####### END onchange FUNCTION #######
+
+} // #######  END addFilter FUNCTION #######
+
+  </script>
+</body>
+
+</html>
